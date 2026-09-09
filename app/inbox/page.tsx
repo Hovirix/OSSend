@@ -1,7 +1,8 @@
-import { PagePlaceholder } from "@/components/app-shell/page-placeholder";
+import { MailList } from "@/components/mail/mail-list";
+import { mockMails } from "@/lib/mock-mails";
 
 function InboxPage() {
-	return <PagePlaceholder title="Inbox" />;
+	return <MailList mails={mockMails} />;
 }
 
 export default InboxPage;

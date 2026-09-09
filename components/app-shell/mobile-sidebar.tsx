@@ -14,7 +14,7 @@ import {
 
 import { Sidebar } from "./sidebar";
 
-function MobileSidebar() {
+function MobileSidebar({ onCompose }: { onCompose: () => void }) {
 	const [open, setOpen] = useState(false);
 
 	return (
@@ -36,7 +36,13 @@ function MobileSidebar() {
 						Navigate OSSend mailboxes and workspace settings.
 					</SheetDescription>
 				</SheetHeader>
-				<Sidebar onNavigate={() => setOpen(false)} />
+				<Sidebar
+					onNavigate={() => setOpen(false)}
+					onCompose={() => {
+						setOpen(false);
+						onCompose();
+					}}
+				/>
 			</SheetContent>
 		</Sheet>
 	);

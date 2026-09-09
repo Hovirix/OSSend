@@ -45,7 +45,9 @@ function NavigationItem({
 }) {
 	const pathname = usePathname();
 	const isActive =
-		pathname === item.href || (item.href === "/inbox" && pathname === "/");
+		pathname === item.href ||
+		(item.href === "/inbox" &&
+			(pathname === "/" || pathname.startsWith("/inbox/")));
 	const Icon = item.icon;
 
 	return (
@@ -70,9 +72,11 @@ function NavigationItem({
 
 function Sidebar({
 	onNavigate,
+	onCompose,
 	className,
 }: {
 	onNavigate?: () => void;
+	onCompose?: () => void;
 	className?: string;
 }) {
 	return (
@@ -88,9 +92,8 @@ function Sidebar({
 			</Link>
 			<Button
 				className="mt-5 w-full justify-start"
-				disabled
+				onClick={onCompose}
 				size="sm"
-				title="Composing email is not available yet"
 			>
 				<PenLine />
 				Compose
