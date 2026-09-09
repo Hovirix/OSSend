@@ -14,7 +14,13 @@ import {
 
 import { Sidebar } from "./sidebar";
 
-function MobileSidebar({ onCompose }: { onCompose: () => void }) {
+function MobileSidebar({
+	onCompose,
+	userEmail,
+}: {
+	onCompose: () => void;
+	userEmail: string;
+}) {
 	const [open, setOpen] = useState(false);
 
 	return (
@@ -37,6 +43,7 @@ function MobileSidebar({ onCompose }: { onCompose: () => void }) {
 					</SheetDescription>
 				</SheetHeader>
 				<Sidebar
+					userEmail={userEmail}
 					onNavigate={() => setOpen(false)}
 					onCompose={() => {
 						setOpen(false);

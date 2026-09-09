@@ -73,10 +73,12 @@ function NavigationItem({
 function Sidebar({
 	onNavigate,
 	onCompose,
+	userEmail,
 	className,
 }: {
 	onNavigate?: () => void;
 	onCompose?: () => void;
+	userEmail: string;
 	className?: string;
 }) {
 	return (
@@ -109,8 +111,11 @@ function Sidebar({
 					<NavigationItem key={item.href} item={item} onNavigate={onNavigate} />
 				))}
 			</nav>
-			<div className="mt-auto px-2 py-1 text-sm text-muted-foreground">
-				user@email.com
+			<div
+				className="mt-auto truncate px-2 py-1 text-sm text-muted-foreground"
+				title={userEmail}
+			>
+				{userEmail}
 			</div>
 		</aside>
 	);
