@@ -1,7 +1,7 @@
 "use client";
 
 import { MoreHorizontal, Paperclip, Send, X } from "lucide-react";
-import { useState } from "react";
+import { type FormEvent, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +25,8 @@ function ComposePanel({
 	const [subject, setSubject] = useState("");
 	const [body, setBody] = useState("");
 	const [showCcBcc, setShowCcBcc] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [isPending, startTransition] = useTransition();
 
 	function clearDraft() {
 		setTo("");
@@ -37,17 +39,48 @@ function ComposePanel({
 
 	function closeComposer() {
 		clearDraft();
+		setError(null);
 		onOpenChange(false);
 	}
 
 	function handleOpenChange(nextOpen: boolean) {
 		if (!nextOpen) {
 			clearDraft();
+			setError(null);
 		}
 		onOpenChange(nextOpen);
 	}
 
 	const canSend = Boolean(to.trim() && subject.trim() && body.trim());
+
+	function submit(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		if (!canSend) {
+			return;
+		}
+
+		setError(null);
+		startTransition(async () => {
+			try {
+				const response = await fetch("/api/mail/send", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ to, cc, bcc, subject, body }),
+				});
+				const result = (await response.json()) as
+					| { success: true }
+					| { success: false; error: string };
+				if (result.success === false) {
+					setError(result.error);
+					return;
+				}
+
+				closeComposer();
+			} catch {
+				setError("Unable to send this message. Please try again.");
+			}
+		});
+	}
 
 	return (
 		<Sheet open={open} onOpenChange={handleOpenChange}>
@@ -71,15 +104,7 @@ function ComposePanel({
 						<X />
 					</Button>
 				</SheetHeader>
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						if (canSend) {
-							closeComposer();
-						}
-					}}
-					className="flex min-h-0 flex-1 flex-col"
-				>
+				<form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
 					<div className="flex min-h-10 items-center gap-2 border-b px-3">
 						<label
 							className="w-12 shrink-0 text-xs text-muted-foreground"
@@ -93,7 +118,6 @@ function ComposePanel({
 							onChange={(event) => setTo(event.target.value)}
 							className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:bg-muted/30"
 							placeholder="Recipients"
-							autoFocus
 						/>
 						<Button
 							type="button"
@@ -162,10 +186,15 @@ function ComposePanel({
 						placeholder="Write your message..."
 						className="min-h-32 flex-1 resize-none bg-background p-3 text-sm leading-6 outline-none placeholder:text-muted-foreground focus-visible:bg-muted/30"
 					/>
+					{error ? (
+						<p className="border-t px-3 py-2 text-sm text-destructive">
+							{error}
+						</p>
+					) : null}
 					<footer className="flex h-12 shrink-0 items-center gap-1 border-t px-3">
-						<Button type="submit" size="sm" disabled={!canSend}>
+						<Button type="submit" size="sm" disabled={!canSend || isPending}>
 							<Send />
-							Send
+							{isPending ? "Sending" : "Send"}
 						</Button>
 						<Button
 							type="button"

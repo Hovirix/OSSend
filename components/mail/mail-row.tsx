@@ -1,10 +1,10 @@
 import { Paperclip } from "lucide-react";
 import Link from "next/link";
 
-import type { MailThread } from "@/lib/mock-mails";
+import type { MailSummary } from "@/lib/mail/types";
 import { cn } from "@/lib/utils";
 
-function MailRow({ mail }: { mail: MailThread }) {
+function MailRow({ mail }: { mail: MailSummary }) {
 	return (
 		<li className="border-b last:border-b-0">
 			<Link

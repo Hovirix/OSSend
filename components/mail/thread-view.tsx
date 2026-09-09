@@ -2,12 +2,12 @@ import { Archive, ArrowLeft, Ellipsis, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import type { MailThread } from "@/lib/mock-mails";
+import type { MailThreadData } from "@/lib/mail/types";
 
 import { MessageItem } from "./message-item";
 import { ReplyBox } from "./reply-box";
 
-function ThreadView({ thread }: { thread: MailThread }) {
+function ThreadView({ thread }: { thread: MailThreadData }) {
 	return (
 		<section className="min-w-0">
 			<header className="flex min-h-14 items-center gap-2 border-b px-4 md:px-6">

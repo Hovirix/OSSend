@@ -1,8 +1,12 @@
 import { Paperclip } from "lucide-react";
 
-import type { MailMessage } from "@/lib/mock-mails";
+import type { MailThreadData } from "@/lib/mail/types";
 
-function MessageItem({ message }: { message: MailMessage }) {
+function MessageItem({
+	message,
+}: {
+	message: MailThreadData["messages"][number];
+}) {
 	return (
 		<article className="border-b py-6 last:border-b-0 md:py-8">
 			<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
