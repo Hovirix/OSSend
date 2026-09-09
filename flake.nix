@@ -13,9 +13,9 @@
     {
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [
-          biome
           nodejs_24
           pnpm
+          sops
         ];
       };
     };
