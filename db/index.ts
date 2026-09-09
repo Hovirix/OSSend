@@ -1,13 +1,10 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
-const connectionString = process.env.DATABASE_URL;
+import { getCoreEnvironment } from "@/lib/env";
 
-if (!connectionString) {
-	throw new Error("DATABASE_URL is not configured");
-}
+const { DATABASE_URL } = getCoreEnvironment();
 
-// Supabase transaction pooling does not support prepared statements.
-const client = postgres(connectionString, { prepare: false });
+const client = postgres(DATABASE_URL);
 
 export const db = drizzle({ client });

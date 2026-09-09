@@ -8,6 +8,27 @@
       "when": 1788986246008,
       "tag": "0000_tricky_the_initiative",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789072646008,
+      "tag": "0001_kind_blindfold",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789072646009,
+      "tag": "0002_bumpy_ghost_rider",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789072646010,
+      "tag": "0003_lively_redwing",
+      "breakpoints": true
     }
   ]
 }
