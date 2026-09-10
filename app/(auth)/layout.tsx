@@ -2,25 +2,14 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { eq } from "drizzle-orm";
-
 export const dynamic = "force-dynamic";
 
 async function AuthLayout({ children }: { children: ReactNode }) {
-	const [{ auth }, { db }, { addresses }] = await Promise.all([
-		import("@/lib/auth"),
-		import("@/db"),
-		import("@/db/schema"),
-	]);
+	const { auth } = await import("@/lib/auth");
 	const session = await auth.api.getSession({ headers: await headers() });
 
 	if (session) {
-		const [mailbox] = await db
-			.select({ id: addresses.id })
-			.from(addresses)
-			.where(eq(addresses.userId, session.user.id))
-			.limit(1);
-		redirect(mailbox ? "/inbox" : "/onboarding/mailbox");
+		redirect("/settings/domains");
 	}
 
 	return children;

@@ -3,31 +3,17 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/app-shell/app-shell";
-import { eq } from "drizzle-orm";
-
 export const dynamic = "force-dynamic";
 
 async function AppLayout({ children }: { children: ReactNode }) {
-	const [{ auth }, { db }, { addresses }] = await Promise.all([
-		import("@/lib/auth"),
-		import("@/db"),
-		import("@/db/schema"),
-	]);
+	const [{ auth }, { getUsableSendingAddresses }] = await Promise.all([import("@/lib/auth"), import("@/lib/domains/service")]);
 	const session = await auth.api.getSession({ headers: await headers() });
 
 	if (!session) {
 		redirect("/sign-in");
 	}
-	const [mailbox] = await db
-		.select({ id: addresses.id })
-		.from(addresses)
-		.where(eq(addresses.userId, session.user.id))
-		.limit(1);
-	if (!mailbox) {
-		redirect("/onboarding/mailbox");
-	}
-
-	return <AppShell userEmail={session.user.email}>{children}</AppShell>;
+	const sendingAddresses = await getUsableSendingAddresses(session.user.id);
+	return <AppShell userEmail={session.user.email} sendingAddresses={sendingAddresses.map((address) => ({ id: address.id, label: `${address.displayName ? `${address.displayName} <` : ""}${address.localPart}@${address.domainName}${address.displayName ? ">" : ""}` }))}>{children}</AppShell>;
 }
 
 export default AppLayout;

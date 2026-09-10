@@ -16,7 +16,7 @@ export async function persistIncomingMessage(email: IncomingMessage): Promise<Re
 	if (!email.externalId || Number.isNaN(email.receivedAt.valueOf())) return { status: "invalid-email" };
 	const [existing] = await db.select({ id: messageProviderRefs.id }).from(messageProviderRefs).where(and(eq(messageProviderRefs.provider, "resend"), eq(messageProviderRefs.direction, "inbound"), eq(messageProviderRefs.externalId, email.externalId))).limit(1);
 	if (existing) return { status: "duplicate" };
-	const hostedAddresses = await db.select({ id: addresses.id, userId: addresses.userId, localPart: addresses.localPart, domainName: domains.name }).from(addresses).innerJoin(domains, eq(addresses.domainId, domains.id)).where(eq(addresses.isEnabled, true));
+	const hostedAddresses = await db.select({ id: addresses.id, userId: addresses.userId, localPart: addresses.localPart, domainName: domains.name }).from(addresses).innerJoin(domains, eq(addresses.domainId, domains.id)).where(and(eq(addresses.isEnabled, true), eq(domains.status, "verified")));
 	const recipientEmails = new Set([...email.to, ...email.cc, ...email.bcc].map(emailAddress));
 	const localAddress = hostedAddresses.find((address) => recipientEmails.has(`${address.localPart}@${address.domainName}`));
 	if (!localAddress) return { status: "unknown-mailbox" };

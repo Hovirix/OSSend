@@ -11,9 +11,11 @@ import { Sidebar } from "./sidebar";
 function AppShell({
 	children,
 	userEmail,
+	sendingAddresses,
 }: {
 	children: ReactNode;
 	userEmail: string;
+	sendingAddresses: { id: string; label: string }[];
 }) {
 	const [isComposeOpen, setIsComposeOpen] = useState(false);
 
@@ -39,7 +41,7 @@ function AppShell({
 					<main className="min-w-0 flex-1 bg-background">{children}</main>
 				</div>
 			</div>
-			<ComposePanel open={isComposeOpen} onOpenChange={setIsComposeOpen} />
+			<ComposePanel open={isComposeOpen} onOpenChange={setIsComposeOpen} sendingAddresses={sendingAddresses} />
 		</>
 	);
 }

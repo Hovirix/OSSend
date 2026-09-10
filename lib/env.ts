@@ -17,6 +17,12 @@ const emailEnvironmentSchema = z.object({
 	EMAIL_FROM: z.string().min(3, "EMAIL_FROM is required."),
 });
 
+const resendEnvironmentSchema = z.object({
+	RESEND_API_KEY: z
+		.string()
+		.regex(/^re_/, "RESEND_API_KEY must start with re_."),
+});
+
 const webhookEnvironmentSchema = z.object({
 	RESEND_WEBHOOK_SECRET: z
 		.string()
@@ -25,6 +31,7 @@ const webhookEnvironmentSchema = z.object({
 
 export type CoreEnvironment = z.infer<typeof coreEnvironmentSchema>;
 export type EmailEnvironment = z.infer<typeof emailEnvironmentSchema>;
+export type ResendEnvironment = z.infer<typeof resendEnvironmentSchema>;
 export type WebhookEnvironment = z.infer<typeof webhookEnvironmentSchema>;
 
 function parseOrThrow<T>(
@@ -60,6 +67,10 @@ export function getEmailEnvironment(): EmailEnvironment {
 		emailEnvironmentSchema,
 		readEnv("RESEND_API_KEY", "EMAIL_FROM"),
 	);
+}
+
+export function getResendEnvironment(): ResendEnvironment {
+	return parseOrThrow(resendEnvironmentSchema, readEnv("RESEND_API_KEY"));
 }
 
 export function getWebhookEnvironment(): WebhookEnvironment {
