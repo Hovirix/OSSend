@@ -6,8 +6,8 @@ import { AppShell } from "@/components/app-shell/app-shell";
 export const dynamic = "force-dynamic";
 
 async function AppLayout({ children }: { children: ReactNode }) {
-	const [{ auth }, { getUsableSendingAddresses }] = await Promise.all([import("@/lib/auth"), import("@/lib/domains/service")]);
-	const session = await auth.api.getSession({ headers: await headers() });
+	const [{ getSession }, { getUsableSendingAddresses }] = await Promise.all([import("@/lib/auth/session"), import("@/lib/domains/service")]);
+	const session = await getSession(await headers());
 
 	if (!session) {
 		redirect("/sign-in");
