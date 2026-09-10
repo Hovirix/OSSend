@@ -21,7 +21,7 @@ export async function sendEmail(input: unknown, requestHeaders: Headers): Promis
 
 	const [sendingAddress] = await db.select({ id: addresses.id, displayName: addresses.displayName, localPart: addresses.localPart, domainName: domains.name })
 		.from(addresses).innerJoin(domains, eq(addresses.domainId, domains.id))
-		.where(and(eq(addresses.userId, session.user.id), eq(addresses.isEnabled, true))).limit(1);
+		.where(and(eq(addresses.userId, session.user.id), eq(addresses.isEnabled, true), eq(domains.status, "verified"))).limit(1);
 	if (!sendingAddress) return { success: false, error: "No email address is configured for this account." };
 
 	const messageId = crypto.randomUUID();

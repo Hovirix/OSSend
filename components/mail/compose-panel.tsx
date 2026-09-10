@@ -1,9 +1,10 @@
 "use client";
 
-import { MoreHorizontal, Paperclip, Send, X } from "lucide-react";
+import { Paperclip, Send, X } from "lucide-react";
 import { type FormEvent, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
+import { saveDraftAction, sendNewMessageAction } from "@/app/(app)/mail-actions";
 import {
 	Sheet,
 	SheetContent,
@@ -15,10 +16,14 @@ import {
 function ComposePanel({
 	open,
 	onOpenChange,
+	sendingAddresses,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	sendingAddresses: { id: string; label: string }[];
 }) {
+	const [sendingAddressId, setSendingAddressId] = useState(sendingAddresses[0]?.id ?? "");
+	const [files, setFiles] = useState<File[]>([]);
 	const [to, setTo] = useState("");
 	const [cc, setCc] = useState("");
 	const [bcc, setBcc] = useState("");
@@ -51,7 +56,7 @@ function ComposePanel({
 		onOpenChange(nextOpen);
 	}
 
-	const canSend = Boolean(to.trim() && subject.trim() && body.trim());
+	const canSend = Boolean(sendingAddressId && to.trim());
 
 	function submit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -62,14 +67,7 @@ function ComposePanel({
 		setError(null);
 		startTransition(async () => {
 			try {
-				const response = await fetch("/api/mail/send", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ to, cc, bcc, subject, body }),
-				});
-				const result = (await response.json()) as
-					| { success: true }
-					| { success: false; error: string };
+				const result = await sendNewMessageAction({ sendingAddressId, to: to.split(",").map((email) => ({ email: email.trim() })).filter((address) => address.email), cc: cc.split(",").map((email) => ({ email: email.trim() })).filter((address) => address.email), bcc: bcc.split(",").map((email) => ({ email: email.trim() })).filter((address) => address.email), subject, textBody: body }, files);
 				if (result.success === false) {
 					setError(result.error);
 					return;
@@ -81,6 +79,7 @@ function ComposePanel({
 			}
 		});
 	}
+	function saveDraft() { setError(null); startTransition(async () => { try { const result = await saveDraftAction({ sendingAddressId, to: to.split(",").map((email) => ({ email: email.trim() })).filter((address) => address.email), cc: cc.split(",").map((email) => ({ email: email.trim() })).filter((address) => address.email), bcc: bcc.split(",").map((email) => ({ email: email.trim() })).filter((address) => address.email), subject, textBody: body }, files); if (!result.success) setError(result.error); else closeComposer(); } catch { setError("Unable to save this draft."); } }); }
 
 	return (
 		<Sheet open={open} onOpenChange={handleOpenChange}>
@@ -105,6 +104,7 @@ function ComposePanel({
 					</Button>
 				</SheetHeader>
 				<form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+					<div className="flex min-h-10 items-center gap-2 border-b px-3"><label className="w-12 shrink-0 text-xs text-muted-foreground" htmlFor="compose-from">From</label><select id="compose-from" value={sendingAddressId} onChange={(event) => setSendingAddressId(event.target.value)} className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none"><option value="">Choose address</option>{sendingAddresses.map((address) => <option key={address.id} value={address.id}>{address.label}</option>)}</select></div>
 					<div className="flex min-h-10 items-center gap-2 border-b px-3">
 						<label
 							className="w-12 shrink-0 text-xs text-muted-foreground"
@@ -196,22 +196,9 @@ function ComposePanel({
 							<Send />
 							{isPending ? "Sending" : "Send"}
 						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							aria-label="Attach file"
-						>
-							<Paperclip />
-						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-sm"
-							aria-label="More compose options"
-						>
-							<MoreHorizontal />
-						</Button>
+						<label className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:bg-muted" aria-label="Attach file"><Paperclip className="size-4" /><input type="file" multiple className="sr-only" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} /></label>
+						{files.length ? <span className="text-xs text-muted-foreground">{files.length} attached</span> : null}
+						<Button type="button" variant="outline" size="sm" disabled={!sendingAddressId || isPending} onClick={saveDraft}>Save draft</Button>
 						<Button
 							type="button"
 							variant="ghost"
