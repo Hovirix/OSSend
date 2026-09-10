@@ -1,1 +1,0 @@
-ALTER TABLE "messages" ADD COLUMN "received_at" timestamp with time zone;

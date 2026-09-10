@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { mailboxSchema } from "@/lib/mail/schemas";
 
 export async function POST(request: Request) {
-	const [{ auth }, { db }, { mailboxes, workspaceMembers }] = await Promise.all(
+	const [{ auth }, { db }, { addresses, domains }] = await Promise.all(
 		[import("@/lib/auth"), import("@/db"), import("@/db/schema")],
 	);
 	const session = await auth.api.getSession({ headers: request.headers });
@@ -35,32 +35,22 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const [membership] = await db
-		.select({ workspaceId: workspaceMembers.workspaceId })
-		.from(workspaceMembers)
-		.where(eq(workspaceMembers.userId, session.user.id))
-		.limit(1);
-	if (!membership) {
-		return Response.json(
-			{ success: false, error: "No workspace is configured for this account." },
-			{ status: 400 },
-		);
+	const [localPart, domainName] = parsed.data.email.split("@");
+	if (!localPart || !domainName) {
+		return Response.json({ success: false, error: "Enter a valid email address." }, { status: 400 });
 	}
-
-	const [mailbox] = await db
-		.insert(mailboxes)
-		.values({
-			id: crypto.randomUUID(),
-			workspaceId: membership.workspaceId,
-			userId: session.user.id,
-			address: parsed.data.email,
-			name: parsed.data.displayName,
-		})
-		.onConflictDoNothing({ target: mailboxes.address })
-		.returning({ id: mailboxes.id });
-	if (!mailbox) {
+	const domainId = crypto.randomUUID();
+	const addressId = crypto.randomUUID();
+	try {
+		await db.transaction(async (tx) => {
+			const [domain] = await tx.insert(domains).values({ id: domainId, userId: session.user.id, name: domainName }).onConflictDoNothing({ target: domains.name }).returning({ id: domains.id, userId: domains.userId });
+			const existingDomain = domain ?? (await tx.select({ id: domains.id, userId: domains.userId }).from(domains).where(eq(domains.name, domainName)).limit(1))[0];
+			if (!existingDomain || existingDomain.userId !== session.user.id) throw new Error("domain-unavailable");
+			await tx.insert(addresses).values({ id: addressId, userId: session.user.id, domainId: existingDomain.id, localPart, displayName: parsed.data.displayName });
+		});
+	} catch {
 		return Response.json(
-			{ success: false, error: "That email address already has a mailbox." },
+			{ success: false, error: "That email address is unavailable." },
 			{ status: 409 },
 		);
 	}

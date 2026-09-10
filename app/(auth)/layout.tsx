@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 export const dynamic = "force-dynamic";
 
 async function AuthLayout({ children }: { children: ReactNode }) {
-	const [{ auth }, { db }, { mailboxes }] = await Promise.all([
+	const [{ auth }, { db }, { addresses }] = await Promise.all([
 		import("@/lib/auth"),
 		import("@/db"),
 		import("@/db/schema"),
@@ -16,9 +16,9 @@ async function AuthLayout({ children }: { children: ReactNode }) {
 
 	if (session) {
 		const [mailbox] = await db
-			.select({ id: mailboxes.id })
-			.from(mailboxes)
-			.where(eq(mailboxes.userId, session.user.id))
+			.select({ id: addresses.id })
+			.from(addresses)
+			.where(eq(addresses.userId, session.user.id))
 			.limit(1);
 		redirect(mailbox ? "/inbox" : "/onboarding/mailbox");
 	}

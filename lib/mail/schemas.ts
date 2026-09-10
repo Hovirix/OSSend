@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { domainNameSchema, localPartSchema } from "@/db/contracts";
+
 const recipients = z
 	.string()
 	.transform((value) =>
@@ -25,9 +27,8 @@ export type ComposeInput = z.input<typeof composeSchema>;
 
 export const mailboxSchema = z.object({
 	displayName: z.string().trim().min(1, "Enter a display name.").max(120),
-	email: z
-		.string()
-		.trim()
-		.toLowerCase()
-		.pipe(z.email("Enter a valid email address.")),
+	email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email address.")).transform((value) => {
+		const [localPart, domain] = value.split("@");
+		return `${localPartSchema.parse(localPart)}@${domainNameSchema.parse(domain)}`;
+	}),
 });
