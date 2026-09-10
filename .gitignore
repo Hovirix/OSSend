@@ -7,4 +7,5 @@
 .next/
 .vinext/
 .wrangler/
+tsconfig.tsbuildinfo
 next-env.d.ts

@@ -16,6 +16,7 @@
           nodejs_24
           pnpm
           sops
+          go-task
         ];
       };
     };
