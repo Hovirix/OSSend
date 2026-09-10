@@ -1,43 +1,18 @@
+import { getInboundTransport } from "@/lib/mail/providers/resend";
+import { receiveInboundEvent } from "@/lib/mail/receive";
+import { getBlobStorage } from "@/lib/storage/filesystem";
+
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-	let message: import("@/lib/mail/types").IncomingMessage | null;
-	const id = request.headers.get("svix-id");
-	const timestamp = request.headers.get("svix-timestamp");
-	const signature = request.headers.get("svix-signature");
-	if (!id || !timestamp || !signature) {
-		return Response.json({ error: "Invalid webhook." }, { status: 400 });
-	}
-
-	const payload = await request.text();
 	try {
-		const { parseResendIncomingMessage } = await import(
-			"@/lib/mail/providers/resend"
-		);
-		message = await parseResendIncomingMessage({
-			payload,
-			headers: { id, timestamp, signature },
-		});
-	} catch {
-		return Response.json({ error: "Invalid webhook." }, { status: 400 });
-	}
-
-	if (!message) {
-		return Response.json({ received: true });
-	}
-
-	try {
-		const { handleIncomingMessage } = await import("@/lib/mail/receive");
-		const result = await handleIncomingMessage(message);
+		const event = await getInboundTransport().verifyWebhook({ body: new Uint8Array(await request.arrayBuffer()), headers: request.headers });
+		if (!event) return Response.json({ received: true });
+		const result = await receiveInboundEvent(event, getInboundTransport(), getBlobStorage());
 		return Response.json({ received: true, status: result.status });
 	} catch (error) {
-		console.error("Unable to process Resend inbound email", {
-			externalId: message.externalId,
-			error: error instanceof Error ? error.message : "Unknown error",
-		});
-		return Response.json(
-			{ error: "Unable to process webhook." },
-			{ status: 500 },
-		);
+		console.error("Unable to process Resend inbound email", { error: error instanceof Error ? error.message : "Unknown error" });
+		const status = error instanceof Error && (error.message.includes("signature") || error.message.includes("webhook")) ? 400 : 500;
+		return Response.json({ error: "Unable to process webhook." }, { status });
 	}
 }

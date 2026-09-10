@@ -1,78 +1,64 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
-import { addresses, attachments, domains, messageAddresses, messageProviderRefs, messages, threads } from "@/db/schema";
-import type { IncomingMessage, MailSummary, MailThreadData } from "@/lib/mail/types";
+import { createId } from "@/db/ids";
+import { addresses, attachments, domains, messageAddresses, messageProviderRefs, messages, threads, webhookEvents } from "@/db/schema";
+import type { NormalizedInboundMessage } from "@/lib/mail/contracts";
+import type { MailSummary, MailThreadData } from "@/lib/mail/types";
+import { attachmentBlobKey, rawEmailBlobKey, type BlobStorage } from "@/lib/storage/types";
+import type { VerifiedInboundEvent } from "@/lib/mail/transports";
 
 function formatTimestamp(date: Date) { return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date); }
 function formatFileSize(size: number) { return size < 1024 ? `${size} B` : size < 1024 * 1024 ? `${Math.round(size / 1024)} KB` : `${(size / (1024 * 1024)).toFixed(1)} MB`; }
-function emailAddress(value: string) { return (value.match(/<([^<>]+)>/)?.[1] ?? value).trim().toLowerCase(); }
-function header(headers: Record<string, string>, name: string) { return Object.entries(headers).find(([key]) => key.toLowerCase() === name)?.[1]; }
-function headerIds(value?: string) { return value?.match(/<[^<>]+>/g) ?? []; }
+function cleanHtml(html?: string) { return html?.replace(/<(script|style|iframe|object|embed)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "").replace(/<\/?(?:script|style|iframe|object|embed)[^>]*>/gi, "").replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "").replace(/\s(?:src|href)\s*=\s*(?:"https?:[^"]*"|'https?:[^']*'|https?:[^\s>]+)/gi, ""); }
 
 export type ReceiveInboundEmailResult = { status: "duplicate" | "unknown-mailbox" | "received" } | { status: "invalid-email" };
+type HostedAddress = { id: string; userId: string; localPart: string; domainName: string };
 
-export async function persistIncomingMessage(email: IncomingMessage): Promise<ReceiveInboundEmailResult> {
-	if (!email.externalId || Number.isNaN(email.receivedAt.valueOf())) return { status: "invalid-email" };
-	const [existing] = await db.select({ id: messageProviderRefs.id }).from(messageProviderRefs).where(and(eq(messageProviderRefs.provider, "resend"), eq(messageProviderRefs.direction, "inbound"), eq(messageProviderRefs.externalId, email.externalId))).limit(1);
-	if (existing) return { status: "duplicate" };
-	const hostedAddresses = await db.select({ id: addresses.id, userId: addresses.userId, localPart: addresses.localPart, domainName: domains.name }).from(addresses).innerJoin(domains, eq(addresses.domainId, domains.id)).where(and(eq(addresses.isEnabled, true), eq(domains.status, "verified")));
-	const recipientEmails = new Set([...email.to, ...email.cc, ...email.bcc].map(emailAddress));
-	const localAddress = hostedAddresses.find((address) => recipientEmails.has(`${address.localPart}@${address.domainName}`));
+export async function claimInboundWebhookEvent(event: VerifiedInboundEvent) {
+	const [inserted] = await db.insert(webhookEvents).values({ id: createId(), provider: event.provider, eventId: event.eventId, eventType: event.eventType, externalMessageId: event.externalMessageId, eventCreatedAt: event.eventCreatedAt, receivedAt: new Date(), status: "processing" }).onConflictDoNothing().returning({ id: webhookEvents.id });
+	if (inserted) return true;
+	const [existing] = await db.select({ status: webhookEvents.status }).from(webhookEvents).where(and(eq(webhookEvents.provider, event.provider), eq(webhookEvents.eventId, event.eventId))).limit(1);
+	if (existing?.status !== "failed") return false;
+	const [reclaimed] = await db.update(webhookEvents).set({ status: "processing", error: null, processedAt: null }).where(and(eq(webhookEvents.provider, event.provider), eq(webhookEvents.eventId, event.eventId), eq(webhookEvents.status, "failed"))).returning({ id: webhookEvents.id });
+	return Boolean(reclaimed);
+}
+export async function completeInboundWebhookEvent(event: VerifiedInboundEvent, messageId?: string) { await db.update(webhookEvents).set({ status: "processed", messageId, processedAt: new Date(), error: null }).where(and(eq(webhookEvents.provider, event.provider), eq(webhookEvents.eventId, event.eventId))); }
+export async function failInboundWebhookEvent(event: VerifiedInboundEvent, error: string) { await db.update(webhookEvents).set({ status: "failed", error: error.slice(0, 1000), processedAt: new Date() }).where(and(eq(webhookEvents.provider, event.provider), eq(webhookEvents.eventId, event.eventId))); }
+
+async function hostedAddressForRecipients(recipients: NormalizedInboundMessage["recipients"]): Promise<HostedAddress | null> {
+	const emails = new Set(recipients.map((recipient) => recipient.email));
+	const hosted = await db.select({ id: addresses.id, userId: addresses.userId, localPart: addresses.localPart, domainName: domains.name }).from(addresses).innerJoin(domains, eq(addresses.domainId, domains.id)).where(and(eq(addresses.isEnabled, true), eq(domains.status, "verified")));
+	return hosted.find((address) => emails.has(`${address.localPart}@${address.domainName}`)) ?? null;
+}
+export async function resolveHostedRecipient(recipients: NormalizedInboundMessage["recipients"]) { return hostedAddressForRecipients(recipients); }
+
+export async function persistIncomingMessage(email: NormalizedInboundMessage, messageId: string, storage: BlobStorage, hostedAddress?: HostedAddress | null): Promise<ReceiveInboundEmailResult> {
+	if (Number.isNaN(email.receivedAt.valueOf()) || !email.from.email) return { status: "invalid-email" };
+	const localAddress = hostedAddress ?? await hostedAddressForRecipients(email.recipients);
 	if (!localAddress) return { status: "unknown-mailbox" };
-
-	const inReplyTo = header(email.headers, "in-reply-to");
-	const references = headerIds(header(email.headers, "references"));
-	const candidates = [inReplyTo, ...[...references].reverse()].filter((id): id is string => Boolean(id));
+	const [alreadyStored] = await db.select({ id: messageProviderRefs.id }).from(messageProviderRefs).where(and(eq(messageProviderRefs.provider, "resend"), eq(messageProviderRefs.direction, "inbound"), eq(messageProviderRefs.externalId, email.externalId))).limit(1);
+	if (alreadyStored) return { status: "duplicate" };
+	const candidates = [email.inReplyTo, ...[...email.references].reverse()].filter((value): value is string => Boolean(value));
 	const known = candidates.length ? await db.select({ id: messages.id, threadId: messages.threadId, internetMessageId: messages.internetMessageId }).from(messages).where(and(eq(messages.userId, localAddress.userId), inArray(messages.internetMessageId, candidates))) : [];
-	const parent = candidates.map((candidate) => known.find((message) => message.internetMessageId === candidate)).find(Boolean);
-	const threadId = parent?.threadId ?? crypto.randomUUID();
-	const messageId = crypto.randomUUID();
-	const fromEmail = emailAddress(email.from);
-	if (!fromEmail) return { status: "invalid-email" };
-	const fromHeader = header(email.headers, "from") ?? email.from;
-	const fromName = fromHeader.match(/^\s*(.*?)\s*<[^<>]+>\s*$/)?.[1]?.trim().replace(/^"|"$/g, "") || null;
-	const recipientRows = [["to", email.to], ["cc", email.cc], ["bcc", email.bcc]] as const;
-
-	try {
-		await db.transaction(async (tx) => {
+	const parent = candidates.map((candidate) => known.find((message) => message.internetMessageId === candidate)).find((message) => Boolean(message));
+	const threadId = parent?.threadId ?? createId();
+	await db.transaction(async (tx) => {
 			if (!parent?.threadId) await tx.insert(threads).values({ id: threadId, userId: localAddress.userId, lastMessageAt: email.receivedAt });
-			await tx.insert(messages).values({ id: messageId, userId: localAddress.userId, threadId, parentMessageId: parent?.id, isInbound: true, fromName, fromEmail, subject: email.subject, textBody: email.text, htmlRaw: email.html, snippet: (email.text ?? "").replace(/\s+/g, " ").slice(0, 160), internetMessageId: email.messageId, inReplyTo, references, searchText: `${email.subject} ${fromName ?? ""} ${fromEmail} ${[...email.to, ...email.cc, ...email.bcc].join(" ")} ${email.text ?? ""}`, receivedAt: email.receivedAt });
-			await tx.insert(messageProviderRefs).values({ id: crypto.randomUUID(), messageId, provider: "resend", direction: "inbound", externalId: email.externalId });
-			const recipients = recipientRows.flatMap(([role, values]) => values.map((value, position) => ({ id: crypto.randomUUID(), messageId, role, email: emailAddress(value), position }))).filter((recipient) => Boolean(recipient.email));
-			if (recipients.length) await tx.insert(messageAddresses).values(recipients);
+			await tx.insert(messages).values({ id: messageId, userId: localAddress.userId, threadId, parentMessageId: parent?.id, isInbound: true, fromName: email.from.name ?? null, fromEmail: email.from.email, subject: email.subject, textBody: email.textBody, htmlRaw: email.htmlRaw, htmlSanitized: cleanHtml(email.htmlRaw), snippet: (email.textBody ?? "").replace(/\s+/g, " ").slice(0, 160), internetMessageId: email.internetMessageId, inReplyTo: email.inReplyTo, references: email.references, rawBlobKey: email.rawEmail ? rawEmailBlobKey(localAddress.userId, messageId) : null, searchText: `${email.subject} ${email.from.name ?? ""} ${email.from.email} ${email.recipients.map((recipient) => recipient.email).join(" ")} ${email.textBody ?? ""}`, receivedAt: email.receivedAt });
+			await tx.insert(messageProviderRefs).values({ id: createId(), messageId, provider: "resend", direction: "inbound", externalId: email.externalId });
+			if (email.recipients.length) await tx.insert(messageAddresses).values(email.recipients.map((recipient) => ({ id: createId(), messageId, role: recipient.role, name: recipient.name, email: recipient.email, localAddressId: recipient.email === `${localAddress.localPart}@${localAddress.domainName}` ? localAddress.id : null, position: recipient.position })));
+			if (email.attachments.length) await tx.insert(attachments).values(email.attachments.map((attachment, index) => ({ id: attachment.externalId ?? `${messageId}-${index}`, messageId, blobKey: attachmentBlobKey(localAddress.userId, messageId, attachment.externalId ?? String(index)), filename: attachment.filename, contentType: attachment.contentType, sizeBytes: attachment.sizeBytes, disposition: attachment.disposition, contentId: attachment.contentId, sha256: attachment.sha256, sourceProvider: attachment.externalId ? email.provider : null, sourceId: attachment.externalId ?? null })));
 			await tx.update(threads).set({ lastMessageAt: email.receivedAt, updatedAt: new Date() }).where(eq(threads.id, threadId));
-		});
-	} catch { return { status: "duplicate" }; }
+	});
 	return { status: "received" };
 }
 
-async function attachmentsForMessages(messageIds: string[]) {
-	if (!messageIds.length) return new Map<string, { name: string; size: string }[]>();
-	const rows = await db.select().from(attachments).where(inArray(attachments.messageId, messageIds));
-	return Map.groupBy(rows.map((row) => ({ messageId: row.messageId, name: row.filename, size: formatFileSize(row.sizeBytes) })), (row) => row.messageId) as Map<string, { name: string; size: string }[]>;
-}
-
-export async function getInboxThreads(userId: string): Promise<MailSummary[]> {
-	const rows = await db.select({ message: messages, thread: threads }).from(messages).innerJoin(threads, eq(messages.threadId, threads.id)).where(and(eq(messages.userId, userId), eq(messages.isInbound, true), isNull(messages.archivedAt), isNull(messages.trashedAt))).orderBy(desc(messages.receivedAt));
-	const grouped = Map.groupBy(rows, (row) => row.thread.id);
-	const attachmentMap = await attachmentsForMessages(rows.map((row) => row.message.id));
-	return [...grouped.values()].map((threadRows) => { const latest = threadRows[0].message; return { id: threadRows[0].thread.id, senderName: latest.fromName ?? latest.fromEmail, senderEmail: latest.fromEmail, subject: latest.subject, preview: latest.snippet, timestamp: formatTimestamp(latest.receivedAt ?? latest.createdAt), unread: threadRows.some((row) => row.message.readAt === null), messageCount: threadRows.length, hasAttachment: threadRows.some((row) => attachmentMap.has(row.message.id)) }; });
-}
-
-export async function getSentMessages(userId: string): Promise<MailSummary[]> {
-	const rows = await db.select({ message: messages }).from(messages).where(and(eq(messages.userId, userId), eq(messages.outboundStatus, "sent"), isNull(messages.trashedAt))).orderBy(desc(messages.sentAt));
-	return rows.map(({ message }) => ({ id: message.threadId ?? message.id, senderName: "You", senderEmail: message.fromEmail, subject: message.subject, preview: message.snippet, timestamp: formatTimestamp(message.sentAt ?? message.createdAt), unread: false, messageCount: 1, hasAttachment: false }));
-}
-
-export async function getThreadForUser(userId: string, threadId: string): Promise<MailThreadData | null> {
-	const [thread] = await db.select().from(threads).where(and(eq(threads.id, threadId), eq(threads.userId, userId))).limit(1);
-	if (!thread) return null;
-	const rows = await db.select().from(messages).where(and(eq(messages.threadId, threadId), eq(messages.userId, userId))).orderBy(messages.createdAt);
-	const recipients = await db.select().from(messageAddresses).where(inArray(messageAddresses.messageId, rows.map((row) => row.id)));
-	const recipientsByMessage = Map.groupBy(recipients, (recipient) => recipient.messageId);
-	const attachmentMap = await attachmentsForMessages(rows.map((row) => row.id));
-	const latest = rows.at(-1);
-	if (!latest) return null;
-	return { id: thread.id, senderName: latest.fromName ?? latest.fromEmail, senderEmail: latest.fromEmail, subject: latest.subject, preview: latest.snippet, timestamp: formatTimestamp(thread.lastMessageAt), unread: rows.some((row) => row.isInbound && row.readAt === null), messageCount: rows.length, hasAttachment: rows.some((row) => attachmentMap.has(row.id)), messages: rows.map((message) => ({ id: message.id, senderName: message.isInbound ? (message.fromName ?? message.fromEmail) : "You", senderEmail: message.fromEmail, recipients: (recipientsByMessage.get(message.id) ?? []).map((recipient) => recipient.email).join(", "), timestamp: formatTimestamp(message.sentAt ?? message.receivedAt ?? message.createdAt), body: message.textBody ?? "", isCurrentUser: !message.isInbound, attachments: attachmentMap.get(message.id), deliveryStatus: message.outboundStatus === "failed" ? `Failed: ${message.lastSendError ?? "Delivery failed"}` : message.outboundStatus === "sending" ? "Sending" : message.outboundStatus === "sent" ? "Sent" : undefined })) };
-}
+async function attachmentsForMessages(messageIds: string[]) { if (!messageIds.length) return new Map<string, { id: string; name: string; size: string }[]>(); const rows = await db.select().from(attachments).where(inArray(attachments.messageId, messageIds)); return Map.groupBy(rows.map((row) => ({ messageId: row.messageId, id: row.id, name: row.filename, size: formatFileSize(row.sizeBytes) })), (row) => row.messageId) as Map<string, { id: string; name: string; size: string }[]>; }
+export async function getInboxThreads(userId: string): Promise<MailSummary[]> { const rows = await db.select({ message: messages, thread: threads }).from(messages).innerJoin(threads, eq(messages.threadId, threads.id)).where(and(eq(messages.userId, userId), eq(messages.isInbound, true), isNull(messages.archivedAt), isNull(messages.trashedAt))).orderBy(desc(messages.receivedAt)); const grouped = Map.groupBy(rows, (row) => row.thread.id); const attachmentMap = await attachmentsForMessages(rows.map((row) => row.message.id)); return [...grouped.values()].map((threadRows) => { const latest = threadRows[0].message; return { id: threadRows[0].thread.id, senderName: latest.fromName ?? latest.fromEmail, senderEmail: latest.fromEmail, subject: latest.subject, preview: latest.snippet, timestamp: formatTimestamp(latest.receivedAt ?? latest.createdAt), unread: threadRows.some((row) => row.message.readAt === null), messageCount: threadRows.length, hasAttachment: threadRows.some((row) => attachmentMap.has(row.message.id)) }; }); }
+export async function getArchivedThreads(userId: string): Promise<MailSummary[]> { const rows = await db.select({ message: messages, thread: threads }).from(messages).innerJoin(threads, eq(messages.threadId, threads.id)).where(and(eq(messages.userId, userId), eq(messages.isInbound, true), isNull(messages.trashedAt), isNotNull(messages.archivedAt))).orderBy(desc(messages.receivedAt)); const grouped = Map.groupBy(rows, (row) => row.thread.id); const attachmentMap = await attachmentsForMessages(rows.map((row) => row.message.id)); return [...grouped.values()].map((threadRows) => { const latest = threadRows[0].message; return { id: threadRows[0].thread.id, senderName: latest.fromName ?? latest.fromEmail, senderEmail: latest.fromEmail, subject: latest.subject, preview: latest.snippet, timestamp: formatTimestamp(latest.receivedAt ?? latest.createdAt), unread: threadRows.some((row) => row.message.readAt === null), messageCount: threadRows.length, hasAttachment: threadRows.some((row) => attachmentMap.has(row.message.id)) }; }); }
+export async function getSentMessages(userId: string): Promise<MailSummary[]> { const rows = await db.select({ message: messages }).from(messages).where(and(eq(messages.userId, userId), eq(messages.outboundStatus, "sent"), isNull(messages.trashedAt))).orderBy(desc(messages.sentAt)); return rows.map(({ message }) => ({ id: message.threadId ?? message.id, senderName: "You", senderEmail: message.fromEmail, subject: message.subject, preview: message.snippet, timestamp: formatTimestamp(message.sentAt ?? message.createdAt), unread: false, messageCount: 1, hasAttachment: false })); }
+export async function getThreadForUser(userId: string, threadId: string): Promise<MailThreadData | null> { const [thread] = await db.select().from(threads).where(and(eq(threads.id, threadId), eq(threads.userId, userId))).limit(1); if (!thread) return null; const rows = await db.select().from(messages).where(and(eq(messages.threadId, threadId), eq(messages.userId, userId))).orderBy(messages.createdAt); await db.update(messages).set({ readAt: new Date(), updatedAt: new Date() }).where(and(eq(messages.threadId, threadId), eq(messages.userId, userId), eq(messages.isInbound, true), isNull(messages.readAt))); const recipients = rows.length ? await db.select().from(messageAddresses).where(inArray(messageAddresses.messageId, rows.map((row) => row.id))) : []; const recipientsByMessage = Map.groupBy(recipients, (recipient) => recipient.messageId); const attachmentMap = await attachmentsForMessages(rows.map((row) => row.id)); const latest = rows.at(-1); if (!latest) return null; return { id: thread.id, senderName: latest.fromName ?? latest.fromEmail, senderEmail: latest.fromEmail, subject: latest.subject, preview: latest.snippet, timestamp: formatTimestamp(thread.lastMessageAt), unread: false, messageCount: rows.length, hasAttachment: rows.some((row) => attachmentMap.has(row.id)), messages: rows.map((message) => ({ id: message.id, senderName: message.isInbound ? (message.fromName ?? message.fromEmail) : "You", senderEmail: message.fromEmail, recipients: (recipientsByMessage.get(message.id) ?? []).map((recipient) => recipient.email).join(", "), timestamp: formatTimestamp(message.sentAt ?? message.receivedAt ?? message.createdAt), body: message.textBody ?? "", isCurrentUser: !message.isInbound, attachments: attachmentMap.get(message.id), deliveryStatus: message.outboundStatus === "failed" ? `Failed: ${message.lastSendError ?? "Delivery failed"}` : message.outboundStatus === "sending" ? "Sending" : message.outboundStatus === "sent" ? "Sent" : undefined })) }; }
+export async function getTrashThreads(userId: string): Promise<MailSummary[]> { const rows = await db.select({ message: messages, thread: threads }).from(messages).innerJoin(threads, eq(messages.threadId, threads.id)).where(and(eq(messages.userId, userId), isNotNull(messages.trashedAt))).orderBy(desc(messages.trashedAt)); const grouped = Map.groupBy(rows, (row) => row.thread.id); return [...grouped.values()].map((threadRows) => { const latest = threadRows[0].message; return { id: threadRows[0].thread.id, senderName: latest.fromName ?? latest.fromEmail, senderEmail: latest.fromEmail, subject: latest.subject, preview: latest.snippet, timestamp: formatTimestamp(latest.trashedAt ?? latest.createdAt), unread: false, messageCount: threadRows.length, hasAttachment: false }; }); }
+export async function setThreadMailboxState(userId: string, threadId: string, state: "archive" | "unarchive" | "trash" | "restore" | "unread") { const value = new Date(); const update = state === "archive" ? { archivedAt: value, updatedAt: value } : state === "unarchive" ? { archivedAt: null, updatedAt: value } : state === "trash" ? { trashedAt: value, updatedAt: value } : state === "restore" ? { trashedAt: null, updatedAt: value } : { readAt: null, updatedAt: value }; await db.update(messages).set(update).where(and(eq(messages.userId, userId), eq(messages.threadId, threadId))); }
+export async function getAttachmentForUser(userId: string, attachmentId: string) { const [attachment] = await db.select({ id: attachments.id, blobKey: attachments.blobKey, filename: attachments.filename, contentType: attachments.contentType }).from(attachments).innerJoin(messages, eq(attachments.messageId, messages.id)).where(and(eq(attachments.id, attachmentId), eq(messages.userId, userId))).limit(1); return attachment ?? null; }
