@@ -31,14 +31,15 @@ function MessageItem({
 			{message.attachments?.length ? (
 				<div className="mt-5 flex flex-wrap gap-2">
 					{message.attachments.map((attachment) => (
-						<div
-							key={attachment.name}
+						<a
+							key={attachment.id}
+							href={`/api/attachments/${attachment.id}`}
 							className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground"
 						>
 							<Paperclip className="size-3" />
 							<span className="text-foreground">{attachment.name}</span>
 							<span>{attachment.size}</span>
-						</div>
+						</a>
 					))}
 				</div>
 			) : null}

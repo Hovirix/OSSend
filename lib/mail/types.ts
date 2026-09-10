@@ -19,7 +19,7 @@ export type MailThreadData = MailSummary & {
 		timestamp: string;
 		body: string;
 		isCurrentUser: boolean;
-		attachments?: Array<{ name: string; size: string }>;
+		attachments?: Array<{ id: string; name: string; size: string }>;
 		deliveryStatus?: string;
 	}>;
 };
