@@ -8,3 +8,7 @@ const { DATABASE_URL } = getCoreEnvironment();
 const client = postgres(DATABASE_URL);
 
 export const db = drizzle({ client });
+
+export function closeDatabase() {
+	return client.end({ timeout: 5 });
+}

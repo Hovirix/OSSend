@@ -189,6 +189,7 @@ export const messages = pgTable(
 		providerMessageId: text("provider_message_id").unique(),
 		failureReason: text("failure_reason"),
 		sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
+		receivedAt: timestamp("received_at", { withTimezone: true }),
 		readAt: timestamp("read_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()

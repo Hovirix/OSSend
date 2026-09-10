@@ -6,7 +6,7 @@ import { MailList } from "@/components/mail/mail-list";
 async function SentPage() {
 	const [{ auth }, { getSentMessages }] = await Promise.all([
 		import("@/lib/auth"),
-		import("@/lib/mail/queries"),
+		import("@/db/queries/mail"),
 	]);
 	const session = await auth.api.getSession({ headers: await headers() });
 	if (!session) {

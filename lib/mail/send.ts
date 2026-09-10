@@ -3,8 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { mailboxes, messageRecipients, messages, threads } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { emailProvider } from "@/providers/email";
-
+import { getMailProvider } from "./provider";
 import { composeSchema } from "./schemas";
 
 export type SendEmailResult =
@@ -97,7 +96,8 @@ export async function sendEmail(
 		return { success: false, error: "Unable to save this message." };
 	}
 
-	const result = await emailProvider.send({
+	const result = await getMailProvider().send({
+		from: mailbox.address,
 		replyTo: mailbox.address,
 		to: message.to,
 		cc: message.cc,
@@ -118,7 +118,7 @@ export async function sendEmail(
 
 	await db
 		.update(messages)
-		.set({ status: "sent", providerMessageId: result.providerMessageId })
+		.set({ status: "sent", providerMessageId: result.externalId })
 		.where(eq(messages.id, messageId));
 	return { success: true };
 }

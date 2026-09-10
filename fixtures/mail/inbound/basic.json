@@ -1,0 +1,16 @@
+{
+	"externalId": "local-inbound-basic-001",
+	"messageId": "<local-inbound-basic-001@example.test>",
+	"from": "Ada Lovelace <ada@example.test>",
+	"to": ["local@example.test"],
+	"cc": [],
+	"bcc": [],
+	"subject": "Local inbound mail",
+	"text": "This message was injected from a local fixture.",
+	"html": "<p>This message was injected from a local fixture.</p>",
+	"headers": {
+		"from": "Ada Lovelace <ada@example.test>"
+	},
+	"receivedAt": "2026-09-10T12:00:00.000Z",
+	"attachments": []
+}

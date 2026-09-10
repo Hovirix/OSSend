@@ -1,0 +1,26 @@
+version: "3"
+
+tasks:
+  dev:
+    cmds:
+      - pnpm dev
+
+  mail:receive:
+    cmds:
+      - pnpm exec tsx scripts/inject-mail.ts
+
+  check:
+    cmds:
+      - pnpm check
+
+  test:
+    cmds:
+      - pnpm test
+
+  deploy:staging:
+    cmds:
+      - pnpm exec wrangler deploy --env staging
+
+  deploy:
+    cmds:
+      - pnpm exec wrangler deploy

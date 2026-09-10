@@ -2,7 +2,6 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 import { ThreadView } from "@/components/mail/thread-view";
-import { getMockMail } from "@/lib/mail/mock";
 
 async function ThreadPage({
 	params,
@@ -12,7 +11,7 @@ async function ThreadPage({
 	const { threadId } = await params;
 	const [{ auth }, { getThreadForUser }] = await Promise.all([
 		import("@/lib/auth"),
-		import("@/lib/mail/queries"),
+		import("@/db/queries/mail"),
 	]);
 	const session = await auth.api.getSession({ headers: await headers() });
 	const thread = session
@@ -23,12 +22,7 @@ async function ThreadPage({
 		return <ThreadView thread={thread} />;
 	}
 
-	const mockThread = getMockMail(threadId);
-	if (!mockThread) {
-		notFound();
-	}
-
-	return <ThreadView thread={mockThread} />;
+	notFound();
 }
 
 export default ThreadPage;
