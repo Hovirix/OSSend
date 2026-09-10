@@ -1,11 +1,11 @@
-import { Archive, ArrowLeft, Ellipsis, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
 import type { MailThreadData } from "@/lib/mail/types";
 
 import { MessageItem } from "./message-item";
 import { ReplyBox } from "./reply-box";
+import { ThreadMailboxActions } from "./thread-mailbox-actions";
 
 function ThreadView({ thread }: { thread: MailThreadData }) {
 	return (
@@ -21,32 +21,14 @@ function ThreadView({ thread }: { thread: MailThreadData }) {
 				<h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight">
 					{thread.subject}
 				</h1>
-				<div className="flex shrink-0 items-center gap-1">
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						aria-label="Archive conversation"
-					>
-						<Archive />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						aria-label="Delete conversation"
-					>
-						<Trash2 />
-					</Button>
-					<Button variant="ghost" size="icon-sm" aria-label="More options">
-						<Ellipsis />
-					</Button>
-				</div>
+				<ThreadMailboxActions threadId={thread.id} />
 			</header>
 			<div className="mx-auto max-w-3xl px-4 md:px-6">
 				{thread.messages.map((message) => (
 					<MessageItem key={message.id} message={message} />
 				))}
 				<div className="py-6 md:py-8">
-					<ReplyBox />
+				<ReplyBox parentMessageId={thread.messages.at(-1)?.id} />
 				</div>
 			</div>
 		</section>

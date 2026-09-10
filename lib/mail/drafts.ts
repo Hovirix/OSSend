@@ -106,3 +106,10 @@ async function replyDraft(userId: string, parentId: string, all: boolean) {
 export async function replyToMessage(userId: string, parentId: string) { return replyDraft(userId, parentId, false); }
 export async function replyAllToMessage(userId: string, parentId: string) { return replyDraft(userId, parentId, true); }
 export async function forwardMessage(userId: string, parentId: string) { const draft = await replyDraft(userId, parentId, false); if (!draft?.sendingAddressId) throw new DraftError("Unable to create draft.", "conflict"); return updateDraft(userId, draft.id, { sendingAddressId: draft.sendingAddressId, to: [], cc: [], bcc: [], subject: draft.subject.replace(/^Re:/i, "Fwd:"), textBody: `\n\n---------- Forwarded message ----------\nFrom: ${draft.fromEmail}\nSubject: ${draft.subject}\n\n${draft.textBody ?? ""}` }); }
+export async function sendReplyToMessage(userId: string, parentId: string, textBody: string, storage: BlobStorage) {
+	const draft = await replyToMessage(userId, parentId);
+	if (!draft?.sendingAddressId) throw new DraftError("Unable to create reply.", "conflict");
+	const recipients = await db.select().from(messageAddresses).where(eq(messageAddresses.messageId, draft.id));
+	await updateDraft(userId, draft.id, { sendingAddressId: draft.sendingAddressId, to: recipients.filter((recipient) => recipient.role === "to").map(({ email, name }) => ({ email, ...(name ? { name } : {}) })), cc: [], bcc: [], subject: draft.subject, textBody });
+	await sendMessage(userId, draft.id, storage);
+}

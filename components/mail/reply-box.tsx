@@ -3,8 +3,9 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { sendReplyAction } from "@/app/(app)/mail-actions";
 
-function ReplyBox() {
+function ReplyBox({ parentMessageId }: { parentMessageId?: string }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [reply, setReply] = useState("");
 
@@ -25,7 +26,7 @@ function ReplyBox() {
 		<form
 			onSubmit={(event) => {
 				event.preventDefault();
-				closeReply();
+				if (parentMessageId) void sendReplyAction(parentMessageId, reply).then((result) => { if (result.success) closeReply(); });
 			}}
 			className="border"
 		>

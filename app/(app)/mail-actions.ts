@@ -3,8 +3,11 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 
-import { addAttachment, createDraft, DraftError, sendMessage } from "@/lib/mail/drafts";
+import { addAttachment, createDraft, DraftError, sendMessage, sendReplyToMessage } from "@/lib/mail/drafts";
 import { getBlobStorage } from "@/lib/storage/filesystem";
+
+export async function setThreadMailboxStateAction(threadId: string, state: "archive" | "unarchive" | "trash" | "restore" | "unread") { try { const id = await userId(); const { setThreadMailboxState } = await import("@/db/queries/mail"); await setThreadMailboxState(id, threadId, state); revalidatePath("/inbox"); revalidatePath("/archive"); revalidatePath("/trash"); return { success: true as const }; } catch { return { success: false as const, error: "Unable to update this conversation." }; } }
+export async function sendReplyAction(parentMessageId: string, textBody: string) { try { const id = await userId(); await sendReplyToMessage(id, parentMessageId, textBody, getBlobStorage()); revalidatePath("/inbox"); return { success: true as const }; } catch (error) { return failure(error); } }
 
 async function userId() { const { auth } = await import("@/lib/auth"); const session = await auth.api.getSession({ headers: await headers() }); if (!session) throw new DraftError("Your session has expired. Sign in again.", "not-found"); return session.user.id; }
 function failure(error: unknown) { return { success: false as const, error: error instanceof DraftError ? error.message : "Unable to save this message." }; }

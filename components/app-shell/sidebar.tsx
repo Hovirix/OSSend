@@ -9,6 +9,7 @@ import {
 	Send,
 	Settings,
 	StickyNote,
+	Trash2,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -29,6 +30,7 @@ const primaryNavigation: NavigationItem[] = [
 	{ href: "/sent", icon: Send, label: "Sent" },
 	{ href: "/drafts", icon: StickyNote, label: "Drafts" },
 	{ href: "/archive", icon: Archive, label: "Archive" },
+	{ href: "/trash", icon: Trash2, label: "Trash" },
 ];
 
 const secondaryNavigation: NavigationItem[] = [
